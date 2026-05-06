@@ -1,0 +1,32 @@
+{
+  "holdout": "insert_id",
+  "in_dist": {
+    "quark_r@1": 0.5,
+    "count_r@1": 0.385,
+    "hash_r@1": 0.16,
+    "sorted_r@1": 0.32,
+    "quark_r@5": 1.0,
+    "count_r@5": 0.69,
+    "hash_r@5": 0.185,
+    "sorted_r@5": 0.465,
+    "quark_r@10": 1.0,
+    "count_r@10": 0.78,
+    "hash_r@10": 0.185,
+    "sorted_r@10": 0.465
+  },
+  "out_dist": {
+    "quark_r@1": 0.425,
+    "count_r@1": 0.045,
+    "hash_r@1": 0.0,
+    "sorted_r@1": 0.0,
+    "quark_r@5": 0.845,
+    "count_r@5": 0.16,
+    "hash_r@5": 0.0,
+    "sorted_r@5": 0.0,
+    "quark_r@10": 0.935,
+    "count_r@10": 0.29,
+    "hash_r@10": 0.0,
+    "sorted_r@10": 0.0
+  },
+  "verdict": "PASS \u2014 model generalizes to unseen rewrite"
+}
