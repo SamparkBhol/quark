@@ -1,6 +1,6 @@
 # changelog
 
-## v0.3.0 (2026-05-06)
+## v0.3.0 (06-05-2026)
 
 Initial public release.
 
