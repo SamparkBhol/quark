@@ -74,4 +74,4 @@ if st.button("verify (ground truth, ≤10 qubits)"):
         st.error(f"verify failed: {e}")
 
 st.markdown("---")
-st.caption("trained on synthetic random circuits (2-4 qubits, depth 8-24). real-world circuits may be out-of-distribution. see github.com/QuantumX/quark for details.")
+st.caption("trained on synthetic random circuits (2-4 qubits, depth 8-24). real-world circuits may be out-of-distribution.")
