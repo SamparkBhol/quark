@@ -55,6 +55,32 @@ def recall_at_k(retrieved, truth, k):
     return hits / max(total, 1)
 
 
+_DISCRIM = [('s', 'sdg'), ('t', 'tdg'), ('sx', 'sxdg'), ('cx', 'cy')]
+
+
+def discrimination(enc, n=60, seed=7, device='cpu'):
+    # pairs differing ONLY by a gate vs a confusable sibling (its inverse, or cx/cy):
+    # genuinely NOT equivalent, so a good model gives them a LOW cosine.
+    # returns (mean_cos, separated_frac).
+    rng = random.Random(seed)
+    A, B = [], []
+    for i in range(n):
+        g1, g2 = rng.choice(_DISCRIM)
+        nq = rng.randint(2, 4)
+        base = random_circuit(nq, rng.randint(6, 16), seed=seed * 131 + i)
+        a = base.copy(); b = base.copy()
+        if g1 in ('cx', 'cy'):
+            x, y = rng.sample(range(nq), 2)
+            getattr(a, g1)(x, y); getattr(b, g2)(x, y)
+        else:
+            q = rng.randrange(nq)
+            getattr(a, g1)(q); getattr(b, g2)(q)
+        A.append(a); B.append(b)
+    ea = embed(enc, A, device=device); eb = embed(enc, B, device=device)
+    sims = (ea * eb).sum(dim=1)
+    return float(sims.mean()), float((sims < 0.9).float().mean())
+
+
 def run(weights=None, n_queries=100, lib_size=500, equiv_per_query=2,
         qmax=4, depth_range=(8, 24), k=4, seed=42, out=None, device='cpu', rewrites=None):
     queries, library, truth = build_pool(n_queries, lib_size, equiv_per_query, qmax, depth_range, k, seed, rewrites=rewrites)
@@ -95,6 +121,13 @@ def run(weights=None, n_queries=100, lib_size=500, equiv_per_query=2,
     for m in ('hash', 'sorted', 'count', 'quark'):
         r1, r5, r10 = res[f'{m}_r@1'], res[f'{m}_r@5'], res[f'{m}_r@10']
         print(f"  {m:8s} | {r1:.3f}  | {r5:.3f}  | {r10:.3f}")
+    print()
+
+    d_sim, d_sep = discrimination(enc, device=device)
+    res['discrim_mean_sim'] = d_sim
+    res['discrim_separated'] = d_sep
+    print("  discrimination (gate vs a confusable sibling — these are NOT equivalent):")
+    print(f"    mean cosine {d_sim:.3f}  |  correctly separated {d_sep:.0%}   (lower cosine = better)")
     print()
 
     if out:

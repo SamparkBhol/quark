@@ -4,17 +4,17 @@ import torch
 
 GATE_VOCAB = {
     'h': 1, 'x': 2, 'y': 3, 'z': 4,
-    's': 5, 'sdg': 5,
-    't': 6, 'tdg': 6,
-    'sx': 7, 'sxdg': 7,
-    'rx': 8, 'ry': 9, 'rz': 10,
-    'cx': 11, 'cy': 11, 'cz': 12,
-    'swap': 13,
+    's': 5, 'sdg': 6,
+    't': 7, 'tdg': 8,
+    'sx': 9, 'sxdg': 10,
+    'rx': 11, 'ry': 12, 'rz': 13,
+    'cx': 14, 'cy': 15, 'cz': 16,
+    'swap': 17,
 }
 PAD = 0
-OTHER_1Q = 14
-OTHER_2Q = 15
-VOCAB = 16
+OTHER_1Q = 18
+OTHER_2Q = 19
+VOCAB = 20
 MAX_QUBITS = 64
 MAX_LEN = 128
 

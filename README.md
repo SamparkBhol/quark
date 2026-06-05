@@ -31,7 +31,7 @@ b = QuantumCircuit(3); b.h(0); b.h(0); b.h(0); b.cx(0, 1); b.cx(1, 2)
 # (because H·H·H = H), just written longer.
 
 ea, eb = embed(m, [a, b])
-print((ea * eb).sum().item())   # ≈ 0.93 — close; unrelated circuits sit near 0.55
+print((ea * eb).sum().item())   # ≈ 0.96 — close; unrelated circuits sit near 0
 ```
 
 ## the problem this solves
@@ -92,13 +92,13 @@ Three retrieval evaluations, each reproducible from a single command. All number
 
 ### 1. in-distribution (synthetic, same recipe as training)
 
-100 random query circuits. Each query has 2 known-equivalents hidden in a library of 500. The other 498 are unrelated random circuits. Equivalents are produced by chaining four random rewrites from {insert HH/XX/CNOT-CNOT, cancel pairs, commute disjoint gates, split or merge Rz on the same qubit}.
+100 random query circuits. Each query has 2 known-equivalents hidden in a library of 500. The other 498 are unrelated random circuits. Equivalents are produced by chaining four random rewrites drawn from the nine equivalence-preserving rewrites described under *how it works* below.
 
 | method                           | R@1   | R@5   | R@10  |
 |----------------------------------|-------|-------|-------|
-| md5 of gate sequence             | 0.095 | 0.105 | 0.105 |
-| md5 of sorted gate-list          | 0.205 | 0.245 | 0.245 |
-| gate-count vector (cosine)       | 0.305 | 0.555 | 0.675 |
+| md5 of gate sequence             | 0.035 | 0.035 | 0.035 |
+| md5 of sorted gate-list          | 0.080 | 0.080 | 0.080 |
+| gate-count vector (cosine)       | 0.410 | 0.825 | 0.880 |
 | **quark (647k params)**          | **0.500** | **1.000** | **1.000** |
 
 Reproduction:
@@ -110,7 +110,7 @@ quark eval  --weights quark.pt --queries 100 --lib 500 --equiv 2
 
 ### 2. held-out rewrite (the test that actually matters)
 
-The previous benchmark trains and tests on the same five rewrites. So you have to ask: did the model learn what it means for circuits to be equivalent, or did it just memorise the fingerprint of the rewrite operations?
+The previous benchmark trains and tests on the same nine rewrites. So you have to ask: did the model learn what it means for circuits to be equivalent, or did it just memorise the fingerprint of the rewrite operations?
 
 To check, I retrained leaving out one rewrite (`insert_id`, the one that adds a redundant pair of gates) and evaluated on a pool whose equivalents are produced *only* by that rewrite. The model has never seen `insert_id` during training. If it had been pattern-matching on rewrite signatures, it should fail. If it learned something more general about equivalence, it should still work.
 
@@ -118,10 +118,10 @@ To check, I retrained leaving out one rewrite (`insert_id`, the one that adds a 
 |-------------------|-------|-------|-------|
 | hash              | 0.000 | 0.000 | 0.000 |
 | sorted hash       | 0.000 | 0.000 | 0.000 |
-| count vector      | 0.045 | 0.160 | 0.290 |
-| **quark**         | **0.425** | **0.845** | **0.935** |
+| count vector      | 0.135 | 0.390 | 0.550 |
+| **quark**         | **0.470** | **0.970** | **0.985** |
 
-R@10 of 0.935 versus 0.290 for the strongest baseline. The model recovers 93.5% of the held-out equivalences in its top-10 results despite never seeing the rewrite during training. The mechanism that makes this work, I think, is that the inverse rewrite (`cancel_consecutive`) *was* in training — the model learned that pairs of cancelling gates can be ignored, and that knowledge transfers to recognising when those pairs were *added* instead of removed.
+R@10 of 0.985 versus 0.550 for the strongest baseline. The model recovers 98.5% of the held-out equivalences in its top-10 results despite never seeing the rewrite during training. The mechanism that makes this work, I think, is that the inverse rewrite (`cancel_consecutive`) *was* in training — the model learned that pairs of cancelling gates can be ignored, and that knowledge transfers to recognising when those pairs were *added* instead of removed.
 
 Reproduction:
 
@@ -142,17 +142,36 @@ This is a hard test for any approach that didn't train on it. The retrieval task
 | hash              | 0.000 | 0.000 | 0.000 |
 | sorted hash       | 0.000 | 0.000 | 0.000 |
 | count vector      | 0.000 | 0.069 | 0.172 |
-| **quark**         | 0.000 | **0.241** | **0.345** |
+| **quark**         | 0.000 | **0.103** | 0.172 |
 
-Honest read: quark wins by 17 percentage points at R@10, which is a real signal — the model isn't doing nothing on out-of-distribution data. But absolute numbers are weak. R@1 is zero across the board. Transpilation is a much harder transformation than the simple identities the model trained on (an `adder_n10` goes from 19 high-level gates to 171 native ones), and the model has never seen circuits at that ratio of expansion.
+Honest read: this is the model's weakest result, and in 0.4.0 it is a deliberate trade-off. quark still edges the count-vector baseline at R@5 (0.103 vs 0.069) but only ties it at R@10 (0.172). Earlier versions scored higher here (R@10 ≈ 0.345); the hard-negative training added in 0.4.0 — which fixed a real false-positive bug (see the *discrimination* benchmark below) — also makes the model less willing to call very different circuits equivalent, and matching an algorithm to its transpiled form is exactly that kind of match. Transpilation is a much harder transformation than the simple identities the model trained on (an `adder_n10` goes from 19 high-level gates to 171 native ones), and the model has never seen circuits at that ratio of expansion.
 
-This is reported because hiding it would be misleading. The fix is more diverse training data; see the limitations section.
+This is reported because hiding it would be misleading. Recovering it without re-introducing false positives is on the roadmap; see the limitations section.
 
 Reproduction:
 
 ```
 git clone https://github.com/pnnl/QASMBench /tmp/QASMBench
 python scripts/qasmbench.py --root /tmp/QASMBench/small --weights quark.pt
+```
+
+### 4. discrimination (telling a gate from its inverse)
+
+Recall@k says nothing about *false positives* — does the model ever call two circuits equivalent when they are not? The sharpest version of that question is a gate versus its own inverse. `S` and `S†` are different unitaries, but they differ by a single, parameter-free token, exactly the kind of thing a circuit embedder can miss.
+
+This benchmark builds 60 pairs that are identical except for one gate swapped for a confusable sibling — an inverse (`S`/`S†`, `T`/`T†`, `SX`/`SX†`) or a different two-qubit gate (`CX`/`CY`) — all genuinely non-equivalent, and measures the cosine quark assigns them. Lower is better.
+
+| model              | mean cosine | correctly separated (< 0.9) |
+|--------------------|-------------|-----------------------------|
+| earlier versions   | ~1.00       | ~0%                         |
+| **quark (0.4.0)**  | **0.77**    | **67%**                     |
+
+On the minimal case — two otherwise-identical circuits differing only by `S` vs `S†` — earlier versions returned a cosine of exactly 1.0000: the tokeniser mapped a gate and its inverse to the same id, so their embeddings were bit-for-bit identical. quark 0.4.0 returns about −0.7 for that pair, while still scoring a genuinely-equivalent pair (`H` vs `HHH`) at 0.96. `quark eval` reports this number on every run.
+
+Reproduction:
+
+```
+quark eval --weights quark.pt   # prints the discrimination score under the table
 ```
 
 ## how it works
@@ -163,7 +182,7 @@ There are two halves: how the model represents a circuit, and how it learns from
 
 Every gate in the circuit becomes one token. A token is the sum of four learned vectors:
 
-- the **gate type** — there are 16 buckets (`h`, `x`, `y`, `z`, `s`, `t`, `sx`, `rx`, `ry`, `rz`, `cx`, `cz`, `swap`, plus a fall-through bucket each for unrecognised one- and two-qubit gates, plus a padding token)
+- the **gate type** — there are 20 buckets (`h`, `x`, `y`, `z`, `s`, `sdg`, `t`, `tdg`, `sx`, `sxdg`, `rx`, `ry`, `rz`, `cx`, `cy`, `cz`, `swap`, plus a fall-through bucket each for unrecognised one- and two-qubit gates, plus a padding token). A gate and its inverse get **distinct** ids (`s`/`sdg`, `t`/`tdg`, `sx`/`sxdg`), as do `cx`/`cy`, so the model can tell them apart — earlier versions collapsed them and reported a gate and its inverse as identical (see the *discrimination* benchmark)
 - the **first qubit** the gate acts on (1-indexed; 0 means padding or "no qubit")
 - the **second qubit** (also 0 for one-qubit gates)
 - the **angle** of any rotation parameter, encoded as `(cos θ, sin θ)` — this is a standard trick to make the encoder smooth in the angle without it caring about the period
@@ -178,17 +197,21 @@ The whole network is 647k parameters. Small enough to be CPU-fast at inference, 
 
 The training task is to make embeddings of equivalent circuits close together and embeddings of unrelated circuits far apart. We need to give the model lots of (equivalent, equivalent, unrelated) triples.
 
-The "unrelated" part is easy — just generate two random circuits independently. The "equivalent" part is harder. A reliable way to get an equivalent circuit is to start with a circuit and apply rewrites that are mathematically guaranteed to preserve the unitary. There are a lot of these in quantum computing; quark uses five simple ones:
+The "unrelated" part is easy — just generate two random circuits independently. The "equivalent" part is harder. A reliable way to get an equivalent circuit is to start with a circuit and apply rewrites that are mathematically guaranteed to preserve the unitary. There are a lot of these in quantum computing; quark uses nine:
 
 1. **Insert an identity pair.** `H` followed by another `H` on the same qubit cancels back to the identity. Same for `X·X` and `CNOT·CNOT`. We pick a random place in the circuit and insert a pair.
 2. **Cancel a pair.** The inverse — find an existing `H·H` (or any of the others) and remove both.
 3. **Commute disjoint gates.** A gate on qubits {0, 1} commutes with a gate on qubits {2, 3}. If we find such a pair, we can swap their order without changing the result.
 4. **Merge Rz rotations.** Two consecutive `Rz(α), Rz(β)` on the same qubit fuse into one `Rz(α + β)`.
 5. **Split an Rz rotation.** The inverse — find an `Rz(θ)` and replace with two `Rz(θ/2)`.
+6. **Named gate ↔ rotation.** `Z = Rz(π)`, `S = Rz(π/2)`, `T = Rz(π/4)`, `X = Rx(π)`, `Y = Ry(π)` (and the daggered forms), all up to global phase. This is what teaches the model that `z` and `rz(π)` are the same operation written two ways.
+7. **Clifford conjugation.** `H X H = Z` and `H Z H = X`.
+8. **Gate algebra.** `S = T·T`, `Z = S·S`, and `SWAP = three CNOTs`.
+9. **Pauli through a CNOT.** An `X` on the control before a CNOT equals an `X` on both qubits after it (`CX·(X⊗I) = (X⊗X)·CX`) — one of the Pauli-propagation rules behind stabiliser reasoning.
 
 Each rewrite is verified for correctness. Tests in `tests/test_pairs.py` check that random small circuits remain unitarily equivalent (up to a global phase) after a chain of these rewrites. The check runs `qiskit.quantum_info.Operator(qc).data`, which is the full matrix — exponential in qubits, but fine for two-qubit and three-qubit test circuits.
 
-For each training step we generate a batch of (anchor, positive, negative) triples. The positives are anchors after a chain of four random rewrites. The loss is symmetric InfoNCE with temperature 0.07 — basically asking the model to identify, given an anchor, which of the in-batch positives belongs to it (and vice versa). The other positives in the batch act as hard negatives, in addition to the explicit negatives.
+For each training step we generate a batch of (anchor, positive, negative) triples. The positives are anchors after a chain of four random rewrites. The loss is symmetric InfoNCE with temperature 0.07 — basically asking the model to identify, given an anchor, which of the in-batch positives belongs to it (and vice versa). The other positives in the batch act as hard negatives, in addition to the explicit negatives. On top of those, each anchor gets a **hard negative**: a near-identical twin of itself with one gate swapped for a confusable sibling (`S`→`S†`, `CX`→`CY`, or a rotation shifted by π) and verified to be a genuinely different unitary. Training against these twins is what stops the model from treating a gate and its inverse as interchangeable.
 
 Training takes about five minutes on a CPU laptop for the default config (1500 triples, 12 epochs, batch 32). The default optimiser is AdamW with a cosine learning-rate schedule.
 
@@ -218,7 +241,7 @@ quark dedupe ./my_circuits/ --weights quark.pt --threshold 0.9
 quark show --n 3 --depth 12 --k 4
 ```
 
-The `--threshold` for dedupe is a cosine similarity cut-off, defaulting to 0.9. Higher means stricter (fewer false-positive groupings, more missed real equivalents); lower is the opposite. For calibration: the H·H·H / H pair from the top of this README scores about 0.93, while unrelated circuits sit near 0.55, so 0.9 separates them cleanly. There is also a `--verify` flag that runs full-unitary equivalence on every grouping suggested by the embedding (slow, but useful for production).
+The `--threshold` for dedupe is a cosine similarity cut-off, defaulting to 0.9. Higher means stricter (fewer false-positive groupings, more missed real equivalents); lower is the opposite. For calibration: the H·H·H / H pair from the top of this README scores about 0.96, while unrelated circuits sit near zero, so 0.9 separates them cleanly. There is also a `--verify` flag that runs full-unitary equivalence on every grouping suggested by the embedding (slow, but useful for production).
 
 ## using it from PennyLane or Cirq
 
@@ -242,9 +265,9 @@ The adapters cover the common gates. Anything they don't recognise is skipped wi
 - **Equivalence here means unitary equivalence up to global phase.** If two circuits differ only in their global phase, quark will see them as equivalent — which is the right answer for most contexts, but not all. Anything involving measurements, classical control, or relative-phase tracking is out of scope.
 - **The model was tested up to 4 qubits in training and 8 qubits in QASMBench evaluation.** Above that we don't have ground-truth equivalence verification (the `quark.verify.equiv` function uses full-unitary computation, which is exponential in qubits and impractical above ~10 qubits).
 - **Sequence length is capped at 128 tokens.** Circuits with more gates get truncated. Some QASMBench transpiled circuits exceed this.
-- **The encoder vocabulary covers about 13 named gates plus two fall-through buckets.** Exotic gate sets (e.g. higher-order controlled gates, multi-qubit rotations beyond the basics) lose information through the fall-throughs.
+- **The encoder vocabulary covers 17 named gates plus two fall-through buckets.** Exotic gate sets (e.g. higher-order controlled gates, multi-qubit rotations beyond the basics) lose information through the fall-throughs.
 - **The model is a similarity heuristic, not a proof.** Two circuits with a high cosine (say above 0.9) are *probably* equivalent, but not certainly. For applications where an incorrect answer matters, always verify.
-- **No hard-negative mining yet.** All negatives during training are random circuits. Mining harder negatives (e.g. circuits that look superficially similar but compute different things) would likely improve retrieval, but isn't implemented.
+- **Hard negatives trade off against out-of-distribution recall.** Training against confusable twins (added in 0.4.0) fixed a false-positive bug and kept in-distribution retrieval perfect, but it lowered QASMBench R@10 from ~0.345 to 0.172 (now level with the baseline). Telling near-twins apart and matching very-different transpiled forms pull in opposite directions, and quark currently favours the former.
 
 ## architecture in one diagram
 
@@ -264,7 +287,7 @@ Source layout:
 quark/
 ├── feat.py        circuit → tokens
 ├── enc.py         transformer encoder + the embed() helper
-├── pairs.py       random circuit generation + the five rewrites
+├── pairs.py       random circuit generation + the nine rewrites + twin generator
 ├── verify.py      ground-truth unitary equivalence check
 ├── search.py      hash / sorted / count-vector baselines
 ├── train.py       triplet and InfoNCE losses, training loop
@@ -289,13 +312,13 @@ Not currently. The encoder only handles unitary gates. If you ignore measurement
 Probably not without finetuning. The training distribution is uniform-ish random circuits over a basic gate set. If your circuits are e.g. QAOA ansatzes, the structure is very different. The right move is to fine-tune on a few hundred to a few thousand circuits from your domain — pretrained weights as the starting point is a reasonable initialisation.
 
 **Why is the model so small (647k parameters)?**
-Two reasons. One: the input space is bounded — at most 128 gates, 64 qubits, 16 gate types, two parameter floats. There's no need for a billion-parameter model to fit this. Two: the training data is limited (5,000-ish unique synthetic circuits in a typical run), and a bigger model would overfit hard. If you have more data, you can scale up by changing `d` and `layers` in `enc.py`.
+Two reasons. One: the input space is bounded — at most 128 gates, 64 qubits, 20 gate types, two parameter floats. There's no need for a billion-parameter model to fit this. Two: the training data is limited (5,000-ish unique synthetic circuits in a typical run), and a bigger model would overfit hard. If you have more data, you can scale up by changing `d` and `layers` in `enc.py`.
 
 **Will adding more rewrites improve generalisation?**
 Yes, probably, especially identities from ZX-calculus and the small commutation rules from compiler optimisation passes. Each new rewrite has to be (a) implemented, (b) verified to preserve unitary equivalence, and (c) added to the training rewrite pool. PRs welcome — there is an issue template specifically for new-rewrite proposals in `.github/ISSUE_TEMPLATE/`.
 
 **What's the deal with the held-out test?**
-That's the experiment that distinguishes "the model learned something general about circuit structure" from "the model memorised what each rewrite operation looks like." Without that distinction, you don't know if the in-distribution numbers mean anything. The held-out test specifically removes one rewrite from training and evaluates only on equivalences produced by that rewrite — and the model still gets 93.5% R@10, suggesting the encoder is learning transferable structure rather than rewrite-specific patterns.
+That's the experiment that distinguishes "the model learned something general about circuit structure" from "the model memorised what each rewrite operation looks like." Without that distinction, you don't know if the in-distribution numbers mean anything. The held-out test specifically removes one rewrite from training and evaluates only on equivalences produced by that rewrite — and the model still gets 98.5% R@10, suggesting the encoder is learning transferable structure rather than rewrite-specific patterns.
 
 **Can I run this on a GPU?**
 Yes. Pass `device='cuda'` to the encoder constructor, training, embedding, and dedupe functions. The model is small enough that CPU is plenty fast for most use cases (embedding 1000 small circuits takes about a second on a laptop), but GPU helps if you're training from scratch or evaluating very large batches.
@@ -330,7 +353,7 @@ All experiments use deterministic seeds. The numbers in this README, the LaTeX p
 
 Things I'd genuinely like to do, in rough order of impact-to-effort:
 
-- **Hard-negative mining.** Use the encoder itself to find structurally-similar but unitarily-different negatives. Likely a meaningful R@1 improvement.
+- **Recover out-of-distribution recall.** Rebalance the hard-negative pressure so QASMBench retrieval climbs back above the baseline without re-introducing the gate/inverse false positives.
 - **More rewrite identities.** ZX-calculus rules, T-count reductions, KAK decompositions. Each one trains the model on a new equivalence relation.
 - **Real-world finetuning recipes.** Worked examples on a corpus of QAOA ansatzes or VQE circuits, with reproducible numbers.
 - **Streaming / longer circuits.** Chunked encoding for circuits that exceed 128 gates.

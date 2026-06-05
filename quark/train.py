@@ -5,7 +5,7 @@ from torch.utils.data import Dataset, DataLoader, random_split
 
 from .enc import CircuitEncoder
 from .feat import encode_batch
-from .pairs import make_pair, random_circuit, rewrite_chain
+from .pairs import make_pair, random_circuit, rewrite_chain, corrupt
 
 
 class TripletDS(Dataset):
@@ -19,7 +19,8 @@ class TripletDS(Dataset):
             n_neg = rng.randint(2, qmax)
             d_neg = rng.randint(*depth_range)
             neg = random_circuit(n_neg, d_neg, seed=seed * 7777 + s)
-            self.items.append((a, p, neg))
+            twin = corrupt(a, random.Random(seed * 555 + s)) or neg
+            self.items.append((a, p, neg, twin))
 
     def __len__(self):
         return len(self.items)
@@ -29,11 +30,9 @@ class TripletDS(Dataset):
 
 
 def _collate(batch):
-    a, p, n = zip(*batch)
-    A = encode_batch(list(a))
-    P = encode_batch(list(p))
-    N = encode_batch(list(n))
-    return A, P, N
+    a, p, n, t = zip(*batch)
+    return (encode_batch(list(a)), encode_batch(list(p)),
+            encode_batch(list(n)), encode_batch(list(t)))
 
 
 def triplet(a, p, n, m=0.2):
@@ -42,15 +41,18 @@ def triplet(a, p, n, m=0.2):
     return torch.clamp(pd - nd + m, min=0).mean()
 
 
-def info_nce(a, p, temp=0.07):
-    logits = (a @ p.t()) / temp
+def info_nce(a, p, temp=0.07, extra_neg=None):
     labels = torch.arange(a.shape[0], device=a.device)
-    return (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)) / 2
+    pos = (a @ p.t()) / temp
+    if extra_neg is not None and extra_neg.numel():
+        logits = torch.cat([pos, (a @ extra_neg.t()) / temp], dim=1)
+        return (F.cross_entropy(logits, labels) + F.cross_entropy(pos.t(), labels)) / 2
+    return (F.cross_entropy(pos, labels) + F.cross_entropy(pos.t(), labels)) / 2
 
 
 def train(samples=1500, epochs=12, batch=32, lr=3e-4, qmax=4,
           depth_range=(8, 24), k=4, save_to=None, device='cpu', seed=0,
-          rewrites=None, loss='triplet'):
+          rewrites=None, loss='triplet', hard_negatives=False):
     ds = TripletDS(n_samples=samples, qmax=qmax, depth_range=depth_range, k=k, seed=seed, rewrites=rewrites)
     n_val = max(50, len(ds) // 10)
     n_tr = len(ds) - n_val
@@ -62,24 +64,23 @@ def train(samples=1500, epochs=12, batch=32, lr=3e-4, qmax=4,
     opt = torch.optim.AdamW(enc.parameters(), lr=lr, weight_decay=1e-5)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
-    print(f"params: {enc.n_params():,} loss={loss}")
+    mine = hard_negatives and loss == 'infonce'
+    print(f"params: {enc.n_params():,} loss={loss} hard_negatives={mine}")
 
-    def _step(batch, train_step):
-        A, P, N = batch
-        A = [t.to(device) for t in A]
-        P = [t.to(device) for t in P]
-        N = [t.to(device) for t in N]
-        ea = enc(*A); ep_ = enc(*P)
+    def _step(batch):
+        A, P, N, T = batch
+        ea = enc(*[t.to(device) for t in A]); ep_ = enc(*[t.to(device) for t in P])
         if loss == 'infonce':
-            return info_nce(ea, ep_)
-        en = enc(*N)
+            extra = enc(*[t.to(device) for t in T]) if mine else None
+            return info_nce(ea, ep_, extra_neg=extra)
+        en = enc(*[t.to(device) for t in N])
         return triplet(ea, ep_, en)
 
     for ep in range(epochs):
         enc.train()
         ttot = 0; tn = 0
         for batch in dl:
-            l = _step(batch, True)
+            l = _step(batch)
             opt.zero_grad(); l.backward()
             torch.nn.utils.clip_grad_norm_(enc.parameters(), 1.0)
             opt.step()
@@ -89,7 +90,7 @@ def train(samples=1500, epochs=12, batch=32, lr=3e-4, qmax=4,
         vtot = 0; vn = 0
         with torch.no_grad():
             for batch in vdl:
-                vtot += _step(batch, False).item(); vn += 1
+                vtot += _step(batch).item(); vn += 1
         sched.step()
         print(f"ep {ep}: train={ttot/max(tn,1):.4f} val={vtot/max(vn,1):.4f}")
 

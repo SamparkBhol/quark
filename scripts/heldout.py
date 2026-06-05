@@ -24,7 +24,7 @@ def main():
 
     print(">>> training without held-out rewrite")
     train(samples=args.samples, epochs=args.epochs, loss=args.loss,
-          rewrites=train_rw, save_to=f"heldout_{args.holdout}.pt")
+          rewrites=train_rw, hard_negatives=True, save_to=f"heldout_{args.holdout}.pt")
 
     print()
     print(">>> eval on training-distribution (sanity)")

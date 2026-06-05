@@ -76,8 +76,10 @@ def from_cirq(circuit):
 
 
 def from_qasm(text):
-    from qiskit.qasm2 import loads
-    return loads(text)
+    # LEGACY_CUSTOM_INSTRUCTIONS makes the parser accept the full historical
+    # qelib1 set (swap, sx, cy, ...), which QASMBench's transpiled circuits use.
+    from qiskit.qasm2 import loads, LEGACY_CUSTOM_INSTRUCTIONS
+    return loads(text, custom_instructions=LEGACY_CUSTOM_INSTRUCTIONS)
 
 
 def load(path):

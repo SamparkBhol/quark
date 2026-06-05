@@ -13,10 +13,12 @@ def cli():
 @click.option('--qmax', default=4)
 @click.option('--lr', default=3e-4)
 @click.option('--loss', default='infonce', type=click.Choice(['triplet', 'infonce']))
+@click.option('--hard-negatives/--no-hard-negatives', default=True)
 @click.option('--out', default='quark.pt')
-def train(samples, epochs, batch, qmax, lr, loss, out):
+def train(samples, epochs, batch, qmax, lr, loss, hard_negatives, out):
     from .train import train as do_train
-    do_train(samples=samples, epochs=epochs, batch=batch, qmax=qmax, lr=lr, loss=loss, save_to=out)
+    do_train(samples=samples, epochs=epochs, batch=batch, qmax=qmax, lr=lr, loss=loss,
+             hard_negatives=hard_negatives, save_to=out)
 
 
 @cli.command(name='eval')
