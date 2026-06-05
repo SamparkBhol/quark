@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/SamparkBhol/quark/actions/workflows/test.yml"><img src="https://github.com/SamparkBhol/quark/actions/workflows/test.yml/badge.svg" alt="tests"></a>
+  
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license Apache 2.0">
   <img src="https://img.shields.io/badge/model-647k%20params-2ea44f.svg" alt="647k params">
