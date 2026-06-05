@@ -259,7 +259,7 @@ emb = embed(model, [qc_from_pl])
 
 The adapters cover the common gates. Anything they don't recognise is skipped with a warning, so for circuits built from an exotic gate set the most faithful path is to export to OpenQASM and load with `from_qasm`: the Qiskit encoder then routes any unrecognised gate into a generic "other 1-qubit" or "other 2-qubit" token instead of dropping it. Coverage is best for Qiskit and PennyLane; Cirq is somewhat thinner.
 
-## limitations (be honest about these before you ship something)
+## limitations
 
 - **Training distribution is synthetic random circuits, 2-4 qubits, depth 8-24.** Real circuits look different. The model probably needs domain finetuning before it works well on, say, a corpus of QFT variants or VQE ansatzes.
 - **Equivalence here means unitary equivalence up to global phase.** If two circuits differ only in their global phase, quark will see them as equivalent — which is the right answer for most contexts, but not all. Anything involving measurements, classical control, or relative-phase tracking is out of scope.
