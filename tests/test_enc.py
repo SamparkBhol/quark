@@ -27,3 +27,15 @@ def test_backward():
     e.sum().backward()
     grads = [x.grad for x in enc.parameters() if x.grad is not None]
     assert grads
+
+
+def test_load_pretrained_uses_bundled_weights():
+    import os
+    from quark import load_pretrained, default_weights
+    # the pretrained weights must ship inside the package, so a pip-installed
+    # copy (no repo checkout) can still load them with no arguments.
+    assert os.path.exists(default_weights())
+    enc = load_pretrained()
+    e = embed(enc, [random_circuit(2, 6, seed=0)])
+    assert e.shape == (1, 128)
+    assert abs(e.norm().item() - 1.0) < 1e-4

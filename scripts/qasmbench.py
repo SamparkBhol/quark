@@ -31,6 +31,13 @@ def collect(root):
     return out
 
 
+def drop_self(retrieved, self_idx):
+    # each query's own identical copy is also in the library; it is never a valid
+    # hit, so strip it before scoring (otherwise it ranks first and crowds out the
+    # transpiled target, mechanically forcing recall@1 to zero).
+    return [[j for j in row if j != s] for row, s in zip(retrieved, self_idx)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default='/tmp/QASMBench/small')
@@ -44,33 +51,33 @@ def main():
         print("nothing to bench. either file paths are wrong or all circuits exceed 128 gates / 8 qubits")
         return
 
-    queries = [t[1] for t in triples]
-    library = []
-    truth = []
-    for k, orig, tp in triples:
-        truth.append([len(library)])
-        library.append(tp)
-    for k, orig, tp in triples:
+    n = len(triples)
+    queries = [orig for _, orig, _ in triples]
+    library = [tp for _, _, tp in triples]   # transpiled forms: the retrieval targets
+    truth = [[i] for i in range(n)]           # query i's target is library[i]
+    self_idx = []                             # each query's own original also lives in the library
+    for _, orig, _ in triples:
+        self_idx.append(len(library))
         library.append(orig)
 
     enc = CircuitEncoder()
     enc.load_state_dict(torch.load(args.weights, map_location='cpu', weights_only=True))
     q_emb = embed(enc, queries)
     l_emb = embed(enc, library)
-    quark_top = cosine_topk(q_emb, l_emb, k=20)
+    quark_top = drop_self(cosine_topk(q_emb, l_emb, k=20), self_idx)
 
     q_h = [hash_repr(c) for c in queries]
     l_h = [hash_repr(c) for c in library]
-    hash_top = hash_topk(q_h, l_h, k=20)
+    hash_top = drop_self(hash_topk(q_h, l_h, k=20), self_idx)
 
     q_s = [sorted_repr(c) for c in queries]
     l_s = [sorted_repr(c) for c in library]
-    sorted_top = hash_topk(q_s, l_s, k=20)
+    sorted_top = drop_self(hash_topk(q_s, l_s, k=20), self_idx)
 
     vocab = collect_vocab(library + queries)
     l_cv = torch.tensor([count_vec(c, vocab) for c in library], dtype=torch.float32)
     q_cv = torch.tensor([count_vec(c, vocab) for c in queries], dtype=torch.float32)
-    cv_top = cosine_topk(q_cv, l_cv, k=20)
+    cv_top = drop_self(cosine_topk(q_cv, l_cv, k=20), self_idx)
 
     res = {}
     for K in (1, 5, 10):

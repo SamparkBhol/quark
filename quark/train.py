@@ -1,4 +1,5 @@
 import random
+import click
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -65,7 +66,11 @@ def train(samples=1500, epochs=12, batch=32, lr=3e-4, qmax=4,
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
     mine = hard_negatives and loss == 'infonce'
-    print(f"params: {enc.n_params():,} loss={loss} hard_negatives={mine}")
+    from . import _style as ui
+    click.echo()
+    ui.rule(f'training · loss={loss} · hard_negatives={mine}')
+    ui.kv('params', f'{enc.n_params():,}')
+    ui.kv('schedule', f'{epochs} epochs', f'· batch {batch} · lr {lr:g}')
 
     def _step(batch):
         A, P, N, T = batch
@@ -92,9 +97,11 @@ def train(samples=1500, epochs=12, batch=32, lr=3e-4, qmax=4,
             for batch in vdl:
                 vtot += _step(batch).item(); vn += 1
         sched.step()
-        print(f"ep {ep}: train={ttot/max(tn,1):.4f} val={vtot/max(vn,1):.4f}")
+        click.echo('  ' + ui.paint(f'ep {ep:>2}', fg=ui.DIM)
+                   + '   ' + ui.paint('train ', fg=ui.DIM) + f'{ttot / max(tn, 1):.4f}'
+                   + ui.paint('    val ', fg=ui.DIM) + f'{vtot / max(vn, 1):.4f}')
 
     if save_to:
         torch.save(enc.state_dict(), save_to)
-        print(f"saved -> {save_to}")
+        ui.status(True, f'saved → {save_to}')
     return enc

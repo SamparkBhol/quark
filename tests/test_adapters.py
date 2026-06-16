@@ -1,8 +1,9 @@
 import os
 import tempfile
+import pytest
 from qiskit.qasm2 import dumps
 from quark.pairs import random_circuit
-from quark.adapters import from_qasm, load
+from quark.adapters import from_qasm, load, from_pennylane, from_cirq
 
 
 def test_from_qasm_roundtrip():
@@ -21,3 +22,35 @@ def test_load_from_file():
     qc2 = load(path)
     os.unlink(path)
     assert qc2.num_qubits == 3
+
+
+def test_from_pennylane_known_gates():
+    qml = pytest.importorskip("pennylane")
+    tape = qml.tape.QuantumScript([qml.Hadamard(0), qml.CNOT(wires=[0, 1])])
+    qc = from_pennylane(tape)
+    assert qc.num_qubits == 2
+    assert [inst.operation.name for inst in qc.data] == ['h', 'cx']
+
+
+def test_from_pennylane_raises_on_unknown_gate():
+    qml = pytest.importorskip("pennylane")
+    tape = qml.tape.QuantumScript([qml.Toffoli(wires=[0, 1, 2])])
+    with pytest.raises(ValueError):
+        from_pennylane(tape)
+
+
+def test_from_cirq_known_gates():
+    cirq = pytest.importorskip("cirq")
+    q = cirq.LineQubit.range(2)
+    c = cirq.Circuit([cirq.H(q[0]), cirq.CNOT(q[0], q[1])])
+    qc = from_cirq(c)
+    assert qc.num_qubits == 2
+    assert [inst.operation.name for inst in qc.data] == ['h', 'cx']
+
+
+def test_from_cirq_raises_on_unknown_gate():
+    cirq = pytest.importorskip("cirq")
+    q = cirq.LineQubit.range(3)
+    c = cirq.Circuit([cirq.TOFFOLI(q[0], q[1], q[2])])
+    with pytest.raises(ValueError):
+        from_cirq(c)
