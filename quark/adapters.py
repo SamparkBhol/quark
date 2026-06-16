@@ -1,5 +1,4 @@
 import math
-import warnings
 
 
 def _pennylane_wire_map(tape):
@@ -41,7 +40,8 @@ def from_pennylane(tape):
         elif nm == 'cz': qc.cz(ws[0], ws[1])
         elif nm == 'swap': qc.swap(ws[0], ws[1])
         else:
-            warnings.warn(f"from_pennylane: unrecognized gate {op.name!r} skipped")
+            raise ValueError(f"from_pennylane: unrecognized gate {op.name!r}; "
+                             "export to OpenQASM and load with from_qasm() for full gate coverage")
     return qc
 
 
@@ -71,7 +71,8 @@ def from_cirq(circuit):
             elif nm == 'CZPowGate': qc.cz(ws[0], ws[1])
             elif nm == 'SwapPowGate': qc.swap(ws[0], ws[1])
             else:
-                warnings.warn(f"from_cirq: unrecognized gate {nm!r} skipped")
+                raise ValueError(f"from_cirq: unrecognized gate {nm!r}; "
+                                 "export to OpenQASM and load with from_qasm() for full gate coverage")
     return qc
 
 

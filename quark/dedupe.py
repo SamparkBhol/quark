@@ -61,19 +61,25 @@ def cluster(paths, weights, threshold=0.9, device='cpu', verify=False):
 
 
 def fmt_report(result):
+    from . import _style as ui
     out = []
     g = result['groups']
+    n = result.get('n_files', 0)
     if not g:
-        out.append(f"no duplicate groups found in {result.get('n_files', 0)} files.")
+        out.append('  ' + ui.paint(f'no duplicate groups in {n} files', fg=ui.DIM))
     else:
-        out.append(f"found {len(g)} duplicate group(s) in {result['n_files']} files:\n")
+        out.append('  ' + ui.paint(f'{len(g)} duplicate group(s)', fg=ui.ACCENT, bold=True)
+                   + ui.paint(f' in {n} files', fg=ui.DIM))
+        out.append('')
         for i, group in enumerate(g):
-            out.append(f"  group {i+1} ({len(group)} files):")
-            for p in group:
-                out.append(f"    - {p}")
-            out.append("")
+            out.append('  ' + ui.paint(f'group {i + 1}', bold=True)
+                       + ui.paint(f'  ·  {len(group)} files', fg=ui.DIM))
+            for j, p in enumerate(group):
+                branch = '└─' if j == len(group) - 1 else '├─'
+                out.append('    ' + ui.paint(branch, fg=ui.DIM) + ' ' + p)
+            out.append('')
     if result['failed']:
-        out.append(f"\n{len(result['failed'])} file(s) failed to parse:")
+        out.append('  ' + ui.paint(f"{len(result['failed'])} file(s) failed to parse:", fg=ui.WARN))
         for p, e in result['failed'][:10]:
-            out.append(f"  - {p}: {e}")
+            out.append('    ' + ui.paint('!', fg=ui.WARN) + f' {p}: ' + ui.paint(e, fg=ui.DIM))
     return "\n".join(out)

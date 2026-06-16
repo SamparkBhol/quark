@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -45,3 +46,17 @@ def embed(model, qcs, batch=32, device='cpu'):
         e = model(g.to(device), q1.to(device), q2.to(device), p.to(device))
         out.append(e.cpu())
     return torch.cat(out, dim=0)
+
+
+def default_weights():
+    # pretrained weights ship inside the package, so pip-installed copies
+    # (with no repo checkout) resolve them without --weights.
+    return os.path.join(os.path.dirname(__file__), 'quark.pt')
+
+
+def load_pretrained(weights=None, device='cpu'):
+    enc = CircuitEncoder().to(device)
+    sd = torch.load(weights or default_weights(), map_location=device, weights_only=True)
+    enc.load_state_dict(sd)
+    enc.train(False)
+    return enc

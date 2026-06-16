@@ -17,13 +17,15 @@ A small machine-learning library that turns quantum circuits into vectors. If tw
 
 It plugs into Qiskit and PennyLane, ships with a pretrained model, and includes a CLI tool that points at a folder of QASM files and tells you which ones are duplicates.
 
+<p align="center">
+  <img src="assets/embed-anim.svg" alt="equivalent circuits land close in embedding space; unrelated circuits stay far" width="100%">
+</p>
+
 ```python
 from qiskit import QuantumCircuit
-import torch
-from quark import CircuitEncoder, embed
+from quark import load_pretrained, embed
 
-m = CircuitEncoder()
-m.load_state_dict(torch.load("quark.pt", map_location="cpu", weights_only=True))
+m = load_pretrained()   # bundled with the package — no separate download
 
 a = QuantumCircuit(3); a.h(0); a.cx(0, 1); a.cx(1, 2)
 b = QuantumCircuit(3); b.h(0); b.h(0); b.h(0); b.cx(0, 1); b.cx(1, 2)
@@ -33,6 +35,9 @@ b = QuantumCircuit(3); b.h(0); b.h(0); b.h(0); b.cx(0, 1); b.cx(1, 2)
 ea, eb = embed(m, [a, b])
 print((ea * eb).sum().item())   # ≈ 0.96 — close; unrelated circuits sit near 0
 ```
+
+> [!TIP]
+> Embedding ~1,000 small circuits takes about a second on a CPU — the model is 647k parameters, so you rarely need a GPU.
 
 ## the problem this solves
 
@@ -74,7 +79,7 @@ pip install "git+https://github.com/SamparkBhol/quark.git"
 
 Python 3.10 or newer. Pulls in Qiskit, PyTorch, NumPy, click. About 1.5 GB of dependencies because PyTorch is large.
 
-The pretrained weights file `quark.pt` is included in the repo (~2.5 MB). If you want to retrain or fine-tune, see the training section below.
+The pretrained weights file `quark.pt` ships inside the package (~2.5 MB), so `load_pretrained()` and `quark dedupe` work straight after a `pip install` with no extra download. If you want to retrain or fine-tune, see the training section below.
 
 ## try it
 
@@ -85,6 +90,28 @@ streamlit run demo/app.py
 # or step through the walkthrough notebook
 jupyter notebook examples/quickstart.ipynb
 ```
+
+## a tiny game: same circuit, or not?
+
+each pair below is two ways of writing a circuit. guess whether quark should call them equivalent (high cosine) or not — then expand to check against what unitary equivalence up to global phase actually says.
+
+<details>
+<summary><code>h q0; h q0; h q0</code> &nbsp;—vs—&nbsp; <code>h q0</code></summary>
+
+**equivalent.** `H·H = I`, so three `H`s collapse to one. quark scores this pair ≈ 0.96.
+</details>
+
+<details>
+<summary><code>s q0</code> &nbsp;—vs—&nbsp; <code>t q0; t q0</code></summary>
+
+**equivalent.** `T = Rz(π/4)`, so `T·T = Rz(π/2) = S`.
+</details>
+
+<details>
+<summary><code>cx q0,q1</code> &nbsp;—vs—&nbsp; <code>cy q0,q1</code></summary>
+
+**not equivalent.** two different two-qubit unitaries — exactly the confusable pair the *discrimination* benchmark trains quark to keep apart.
+</details>
 
 ## benchmarks
 
@@ -141,10 +168,13 @@ This is a hard test for any approach that didn't train on it. The retrieval task
 |-------------------|-------|-------|-------|
 | hash              | 0.000 | 0.000 | 0.000 |
 | sorted hash       | 0.000 | 0.000 | 0.000 |
-| count vector      | 0.000 | 0.069 | 0.172 |
-| **quark**         | 0.000 | **0.103** | 0.172 |
+| count vector      | 0.069 | 0.069 | 0.172 |
+| **quark**         | 0.034 | **0.103** | 0.172 |
 
-Honest read: this is the model's weakest result, and in 0.4.0 it is a deliberate trade-off. quark still edges the count-vector baseline at R@5 (0.103 vs 0.069) but only ties it at R@10 (0.172). Earlier versions scored higher here (R@10 ≈ 0.345); the hard-negative training added in 0.4.0 — which fixed a real false-positive bug (see the *discrimination* benchmark below) — also makes the model less willing to call very different circuits equivalent, and matching an algorithm to its transpiled form is exactly that kind of match. Transpilation is a much harder transformation than the simple identities the model trained on (an `adder_n10` goes from 19 high-level gates to 171 native ones), and the model has never seen circuits at that ratio of expansion.
+> [!NOTE]
+> The library holds both forms of every algorithm, so a query's own identical copy is in it too. That self-copy is excluded from the query's own results — otherwise it ranks first by definition and pins R@1 to zero for every method regardless of skill.
+
+Honest read: this is the model's weakest result, and in 0.4.0 it is a deliberate trade-off. quark edges the count-vector baseline at R@5 (0.103 vs 0.069), trails it at R@1 (0.034 vs 0.069), and ties it at R@10 (0.172). Earlier versions scored higher here (R@10 ≈ 0.345); the hard-negative training added in 0.4.0 — which fixed a real false-positive bug (see the *discrimination* benchmark below) — also makes the model less willing to call very different circuits equivalent, and matching an algorithm to its transpiled form is exactly that kind of match. Transpilation is a much harder transformation than the simple identities the model trained on (an `adder_n10` goes from 19 high-level gates to 171 native ones), and the model has never seen circuits at that ratio of expansion.
 
 This is reported because hiding it would be misleading. Recovering it without re-introducing false positives is on the roadmap; see the limitations section.
 
@@ -257,7 +287,7 @@ qc_from_qasm = from_qasm(open("circuit.qasm").read())
 emb = embed(model, [qc_from_pl])
 ```
 
-The adapters cover the common gates. Anything they don't recognise is skipped with a warning, so for circuits built from an exotic gate set the most faithful path is to export to OpenQASM and load with `from_qasm`: the Qiskit encoder then routes any unrecognised gate into a generic "other 1-qubit" or "other 2-qubit" token instead of dropping it. Coverage is best for Qiskit and PennyLane; Cirq is somewhat thinner.
+The adapters cover the common gates. Anything they don't recognise raises a `ValueError` rather than silently dropping the gate — a dropped gate would change the circuit's unitary and quietly corrupt the embedding. For circuits built from an exotic gate set the most faithful path is to export to OpenQASM and load with `from_qasm`: the Qiskit encoder then routes any unrecognised gate into a generic "other 1-qubit" or "other 2-qubit" token instead of dropping it. Coverage is best for Qiskit and PennyLane; Cirq is somewhat thinner.
 
 ## limitations
 

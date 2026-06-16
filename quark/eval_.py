@@ -1,5 +1,6 @@
 import json
 import random
+import click
 import torch
 
 from .enc import CircuitEncoder, embed
@@ -113,22 +114,21 @@ def run(weights=None, n_queries=100, lib_size=500, equiv_per_query=2,
         res[f'hash_r@{K}'] = recall_at_k(hash_top, truth, K)
         res[f'sorted_r@{K}'] = recall_at_k(sorted_top, truth, K)
 
-    print()
-    print(f"  pool: {n_queries} queries, {lib_size} library, {equiv_per_query} equivalents per query")
-    print()
-    print(f"  method   |  R@1   |  R@5   |  R@10")
-    print(f"  ---------|--------|--------|-------")
-    for m in ('hash', 'sorted', 'count', 'quark'):
-        r1, r5, r10 = res[f'{m}_r@1'], res[f'{m}_r@5'], res[f'{m}_r@10']
-        print(f"  {m:8s} | {r1:.3f}  | {r5:.3f}  | {r10:.3f}")
-    print()
+    from . import _style as ui
+    click.echo()
+    ui.rule(f'retrieval · {n_queries} queries · {lib_size} library · {equiv_per_query} equiv/query')
+    rows = [[m] + [f'{res[f"{m}_r@{K}"]:.3f}' for K in (1, 5, 10)]
+            for m in ('hash', 'sorted', 'count', 'quark')]
+    ui.table(['method', 'R@1', 'R@5', 'R@10'], rows, highlight='quark')
 
     d_sim, d_sep = discrimination(enc, device=device)
     res['discrim_mean_sim'] = d_sim
     res['discrim_separated'] = d_sep
-    print("  discrimination (gate vs a confusable sibling — these are NOT equivalent):")
-    print(f"    mean cosine {d_sim:.3f}  |  correctly separated {d_sep:.0%}   (lower cosine = better)")
-    print()
+    click.echo()
+    ui.rule('discrimination · gate vs confusable sibling — NOT equivalent (lower is better)')
+    ui.kv('mean cosine', f'{d_sim:.3f}')
+    ui.kv('separated', f'{d_sep:.0%}')
+    click.echo()
 
     if out:
         with open(out, 'w') as f:
@@ -175,16 +175,18 @@ def smoke_bench(n_circuits=50, qmax=8, seed=0, weights=None, device='cpu'):
     eq_mean = sum(eq_sims) / len(eq_sims)
     rand_mean = sum(rand_sims) / len(rand_sims) if rand_sims else None
 
-    print()
-    print(f"  weights:        {tag}")
-    print(f"  circuits:       {n_circuits} (up to {qmax} qubits), seed {seed}")
-    print(f"  embed time:     {dt * 1000:.1f} ms ({n_circuits / dt:.0f} circuits/s)")
-    print(f"  equivalent sim: {eq_mean:.3f} (mean)")
+    from . import _style as ui
+    click.echo()
+    ui.rule('smoke bench')
+    ui.kv('weights', tag)
+    ui.kv('circuits', f'{n_circuits}', f'(up to {qmax} qubits, seed {seed})')
+    ui.kv('embed time', f'{dt * 1000:.1f} ms', f'({n_circuits / dt:.0f} circuits/s)')
+    ui.kv('equivalent sim', f'{eq_mean:.3f}')
     if rand_mean is not None:
-        print(f"  random sim:     {rand_mean:.3f} (mean)")
-        print(f"  separation:     {eq_mean - rand_mean:+.3f}")
+        ui.kv('random sim', f'{rand_mean:.3f}')
+        ui.kv('separation', f'{eq_mean - rand_mean:+.3f}')
     else:
-        print("  random sim:     n/a (needs >= 2 circuits)")
-    print()
+        ui.kv('random sim', 'n/a', '(needs >= 2 circuits)')
+    click.echo()
 
     return {'embed_s': dt, 'equiv_sim': eq_mean, 'random_sim': rand_mean}
