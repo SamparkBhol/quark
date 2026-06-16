@@ -15,6 +15,8 @@
 
 A small machine-learning library that turns quantum circuits into vectors. If two circuits compute the same thing (the same unitary), their vectors should be close. If they compute different things, their vectors should be far apart. That is the whole pitch.
 
+"the basic concept of this is that quantum programs can be written a ton of different ways even when they do the exact same thing, and checking if two of them are actually the same is super slow ; so this turns each program into a little set of numbers like a fingerprint, and the ones that do the same thing end up with similar fingerprints. that way you can instantly spot duplicates or find similar ones instead of doing all that slow math. basically it makes quantum code searchable kinda like reverse image search for photos, which people hadnt really done before."
+
 It plugs into Qiskit and PennyLane, ships with a pretrained model, and includes a CLI tool that points at a folder of QASM files and tells you which ones are duplicates.
 
 <p align="center">
