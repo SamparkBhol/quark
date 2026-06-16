@@ -17,10 +17,6 @@ A small machine-learning library that turns quantum circuits into vectors. If tw
 
 It plugs into Qiskit and PennyLane, ships with a pretrained model, and includes a CLI tool that points at a folder of QASM files and tells you which ones are duplicates.
 
-<p align="center">
-  <img src="assets/embed-anim.svg" alt="equivalent circuits land close in embedding space; unrelated circuits stay far" width="100%">
-</p>
-
 ```python
 from qiskit import QuantumCircuit
 from quark import load_pretrained, embed
