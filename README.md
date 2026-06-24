@@ -1,3 +1,7 @@
+## UPDATE
+
+The project is open sourced and furthur updates will be available at - https://github.com/orgs/Quantumx-fn/repositories
+
 <p align="center">
   <img src="assets/banner.svg" alt="quark — vector embeddings for quantum circuits" width="100%">
 </p>
